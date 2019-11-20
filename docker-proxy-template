@@ -1,0 +1,45 @@
+version: '2'
+
+networks:
+  slave:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.2.0.0/16
+          gateway: 10.2.0.1
+services:
+
+  zabbix_proxy1:
+    container_name: zabbix_proxy1
+    image: zabbix/zabbix-proxy-sqlite3
+    networks:
+      slave:
+        ipv4_address: 10.2.0.2
+    environment:
+     DB_SERVER_HOST: postgres-proxy
+     ZBX_SERVER_HOST: {{zabbixServerHost.user_input}}
+     ZBX_PROXYMODE: 0
+     ZBX_HOSTNAME: proxy1
+
+  zabbix_proxy2:
+    container_name: zabbix_proxy2
+    image: zabbix/zabbix-proxy-sqlite3
+    networks:
+      slave:
+        ipv4_address: 10.2.0.3
+    environment:
+     DB_SERVER_HOST: postgres-proxy
+     ZBX_SERVER_HOST: {{zabbixServerHost.user_input}}
+     ZBX_PROXYMODE: 0
+     ZBX_HOSTNAME: proxy2
+
+  test_server:
+    container_name: test_server
+    image: debian 
+    networks:
+      slave:
+        ipv4_address: 10.2.0.4
+    entrypoint:
+      - /bin/sleep
+    command:
+      - infinity

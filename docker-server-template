@@ -1,0 +1,47 @@
+version: '2'
+
+networks:
+  master:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.1.0.0/16
+          gateway: 10.1.0.1
+
+services:
+
+  zabbix_dashboard:
+    container_name: zabbix_dashboard
+    image: zabbix/zabbix-web-nginx-pgsql
+    networks:
+      master:
+        ipv4_address: 10.1.0.2
+    environment:
+     DB_SERVER_HOST: postgres
+     POSTGRES_USER: postgres
+     POSTGRES_PASSWORD: {{psqlPassword}}
+     ZBX_SERVER_HOST: zabbix_server
+    ports:
+     - "80:80"
+
+  zabbix_server:
+    container_name: zabbix_server
+    build: docker/zabbix-server
+    networks:
+      master:
+        ipv4_address: 10.1.0.3
+    environment:
+     DB_SERVER_HOST: postgres
+     POSTGRES_PASSWORD: {{psqlPassword}}
+     POSTGRES_USER: postgres
+    ports:
+     - "10051:10051"
+
+  postgres:
+    container_name: postgres
+    build: docker/postgres
+    networks:
+      master:
+        ipv4_address: 10.1.0.4
+    environment:
+     POSTGRES_PASSWORD: {{psqlPassword}}

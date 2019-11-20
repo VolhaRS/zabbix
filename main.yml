@@ -1,0 +1,154 @@
+- name: create file system
+  hosts: localhost
+
+  vars_prompt: 
+    - name: "psqlPassword" 
+      prompt: "Enter password for postgres user" 
+      private: no
+    - name: "host" 
+      prompt: "Enter host for ICMP monotoring" 
+      private: no
+
+  tasks:
+
+    - name: parametrized docker-server-compose file
+      template: src=./docker-server-template dest=./docker-server-compose.yml
+      tags: zabbix-server
+
+    - name: up postgres for server
+      shell: "docker-compose -f docker-server-compose.yml up -d postgres"
+      tags: zabbix-server
+
+    - pause: seconds=15
+      tags: zabbix-server
+
+    - name: create zabbix database
+      shell: "docker exec -t postgres bash -c 'echo \"CREATE DATABASE zabbix;\" | PGPASSWORD={{ psqlPassword }} psql --user postgres'"
+      tags: zabbix-server
+
+    - name: create zabbix table
+      shell: "docker exec -t postgres bash -c 'zcat create.sql.gz | PGPASSWORD={{ psqlPassword }} psql --user postgres'"
+      tags: zabbix-server
+
+    - name: up zabbix server
+      shell: "docker-compose -f docker-server-compose.yml up -d zabbix_server"
+      tags: zabbix-server
+
+    - name: up zabbix dashboard
+      shell: "docker-compose -f docker-server-compose.yml up -d zabbix_dashboard"
+      tags: zabbix-server
+
+    - name: up test server
+      shell: "docker-compose -f docker-server-compose.yml up -d test_server"
+      tags: zabbix-server
+
+    - pause: seconds=15
+      tags: zabbix-server
+
+    - name: login to zabbix
+      uri:
+        url: http://10.1.0.2/api_jsonrpc.php
+        method: POST
+        body: '{ "jsonrpc": "2.0", "method": "user.login", "params": { "user": "Admin", "password": "zabbix" }, "id": 1 }'
+        headers: 
+          Content-Type: 'application/json-rpc'
+        status_code: 200
+        body_format: json
+      register: json_response
+      tags: zabbix-server
+
+    - name: configure host in zabbix
+      uri:
+        url: http://10.1.0.2/api_jsonrpc.php
+        method: POST
+        body: '{ "jsonrpc": "2.0", "method": "host.create", "params": { "host": "Linux server", "interfaces": [ { "type": 1, "main": 1, "useip": 1, "ip": "{{ host }}", "dns": "", "port": "10050" } ], "groups": [ { "groupid": "8" } ], "tags": [ { "tag": "Host name", "value": "Linux server" } ], "templates": [ { "templateid": "10186" } ], "macros": [ { "macro": "{$USER_ID}", "value": "123321" }, { "macro": "{$USER_LOCATION}", "value": "0:0:0", "description": "latitude, longitude and altitude coordinates" } ], "inventory_mode": 0, "inventory": [{ "macaddress_a": "01234", "macaddress_b": "56768" }] }, "auth": "{{ json_response.json.result }}", "id": 1 }'
+        body_format: json
+        headers: 
+          Content-Type: 'application/json-rpc'
+        status_code: 200
+      tags: zabbix-server
+
+    - pause:
+        prompt: "Enter zabbix server host"
+        echo: yes
+      register: zabbixServerHost
+      tags: zabbix-proxy
+
+    - name: parametrized docker-proxy-compose file
+      template: src=./docker-proxy-template dest=./docker-proxy-compose.yml
+      tags: zabbix-proxy
+
+    - name: up zabbix proxy1
+      shell: "docker-compose -f docker-proxy-compose.yml up -d zabbix_proxy1"
+      tags: zabbix-proxy
+
+    - name: up zabbix proxy2
+      shell: "docker-compose -f docker-proxy-compose.yml up -d zabbix_proxy2"
+      tags: zabbix-proxy
+
+    - name: login to zabbix
+      uri:
+        url: http://{{zabbixServerHost.user_input}}/api_jsonrpc.php
+        method: POST
+        body: '{ "jsonrpc": "2.0", "method": "user.login", "params": { "user": "Admin", "password": "zabbix" }, "id": 1 }'
+        headers: 
+          Content-Type: 'application/json-rpc'
+        status_code: 200
+        body_format: json
+      register: json_response
+      tags: zabbix-proxy
+
+    - name: test
+      set_fact:
+        key: '{{ json_response.json.result }}'
+      tags: zabbix-proxy
+
+
+    - name: get hostid
+      uri:
+        url: http://{{zabbixServerHost.user_input}}/api_jsonrpc.php
+        method: POST
+        body: '{ "jsonrpc": "2.0", "method": "host.get", "params": { "filter": { "host": ["Linux server" ] }}, "auth": "{{json_response.json.result}}", "id": 1}'
+        headers: 
+          Content-Type: 'application/json-rpc'
+        status_code: 200
+        body_format: json
+      register: json_response
+      tags: zabbix-proxy
+
+    - name: test
+      set_fact:
+        hostid: '{{ json_response.json.result[0].hostid }}'
+      tags: zabbix-proxy
+
+    - name: create proxy №1
+      uri:
+        url: http://{{zabbixServerHost.user_input}}/api_jsonrpc.php
+        method: POST
+        body: '{ "jsonrpc": "2.0", "method": "proxy.create", "params": { "host": "proxy1", "status": "5", "hosts": [{"hostid": "{{ hostid }}"}]},"auth":  "{{ key }}", "id": 1}'
+        headers: 
+          Content-Type: 'application/json-rpc'
+        status_code: 200
+        body_format: json
+      tags: zabbix-proxy
+
+    - name: create proxy №2
+      uri:
+        url: http://{{zabbixServerHost.user_input}}/api_jsonrpc.php
+        method: POST
+        body: '{ "jsonrpc": "2.0", "method": "proxy.create", "params": { "host": "proxy2", "status": "5", "hosts": [{"hostid": "{{ hostid }}"}]},"auth":  "{{ key }}", "id": 1}'
+        headers: 
+          Content-Type: 'application/json-rpc'
+        status_code: 200
+        body_format: json
+      tags: zabbix-proxy
+
+
+    - name: restart zabbix proxy1
+      shell: "docker restart zabbix_proxy1'"
+      tags: zabbix-proxy
+
+
+    - name: restart zabbix proxy2
+      shell: "docker restrat zabbix_proxy2'"
+      tags: zabbix-proxy
