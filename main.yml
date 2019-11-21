@@ -1,4 +1,4 @@
-- name: create file system
+- name: up zabbix server and proxy
   hosts: localhost
 
   vars_prompt: 
