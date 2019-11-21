@@ -38,10 +38,6 @@
       shell: "docker-compose -f docker-server-compose.yml up -d zabbix_dashboard"
       tags: zabbix-server
 
-    - name: up test server
-      shell: "docker-compose -f docker-server-compose.yml up -d test_server"
-      tags: zabbix-server
-
     - pause: seconds=15
       tags: zabbix-server
 
